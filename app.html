@@ -1,0 +1,230 @@
+<html>
+    <style>
+        *{
+            box-sizing: border-box;
+        }
+
+        body{
+            font-size: 16px;
+        }
+
+        #app{
+            width: 600px;
+            margin: auto;
+            margin-top: 30px;
+            margin-bottom: 30px;
+        }
+    </style>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css" integrity="sha384-TX8t27EcRE3e/ihU7zmQxVncDAy5uIKz4rEkgIXeMed4M0jlfIDPvg6uqKI2xXr2" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css" integrity="sha512-iBBXm8fW90+nuLcSKlbmrPcLa0OT92xO1BIsZ+ywDWZCvqsWgccV3gFoRBv0z+8dLJgyAHIhR35VZc2oM/gI1w==" crossorigin="anonymous" />
+    <body>
+        <div id="app">
+            <div id="add_clause">
+                <div>Click <span style="font-size:24px;font-family:monospace;">X</span> to switch between positive and negative literal</div>
+                <div>
+                    <span style="font-size:40px;font-family:monospace;cursor:pointer;" v-bind:style="{'text-decoration':(clause.current_literal_positive)?('none'):('overline')}" v-on:click="flip_positive">X</span>
+                    <span><input type="number" min="0" v-model="clause.current_literal_id" style="height:24px;width:48px;"></span>
+                    <span style="margin-left:5px;cursor:pointer;" v-on:click="add_literal"><i class="fa fa-plus-circle" aria-hidden="true"></i> Add Literal</span>
+                </div>
+                <div style="font-size:24px;font-family:monospace;">
+                    <span v-for="literal in clause.current_clause_literals"><span v-bind:style="{'text-decoration':(literal.literal_positive)?('none'):('overline')}">X</span><sub>{{literal.literal_id}}</sub></span>
+                </div>
+                <div v-if="clause.current_clause_literals.length>0" class="btn-group" role="group">
+                    <button type="button" class="btn btn-dark" v-on:click="add_clause">Add Clause</button>
+                    <button type="button" class="btn btn-dark" v-on:click="reset">Reset</button>
+                </div>
+            </div>
+            <div id="cnf">
+                <div v-if="cnf.clauses.length>0" style="font-size:0;font-family:monospace;">
+                    <hr>
+                    <span style="font-size:24px;">{</span>
+                    <span v-for="(clause,index) in cnf.clauses" style="font-size:0;">
+                        <span v-for="literal in clause" style="font-size:24px;"><span v-bind:style="{'text-decoration':(literal.literal_positive)?('none'):('overline')}">X</span><sub>{{literal.literal_id}}</sub></span>
+                        <span v-if="index<cnf.clauses.length-1" style="font-size:24px;">,</span>
+                    </span>
+                    <span style="font-size:24px;">}</span>
+                </div>
+                <div v-if="cnf.clauses.length>0" class="btn-group" role="group">
+                    <button type="button" class="btn btn-dark" v-on:click="compute_sat">Compute</button>
+                    <button type="button" class="btn btn-dark" v-on:click="reset">Reset</button>
+                </div>
+                <div v-if="compute.assignments.length>0">
+                    <hr>
+                    <div v-for="assignment in compute.assignments" style="font-size:0;font-family:monospace;">
+                        <span style="font-size:24px;">{</span>
+                            <span v-for="(value,name,index) in assignment.assignment" style="font-size:0;">
+                                <span style="font-size:24px;"><span>X</span><sub>{{name}}</sub></span>
+                                <span style="font-size:24px;">-></span>
+                                <span v-if="value=='TRUE'" style="font-size:24px;">1</span>
+                                <span v-if="value=='FALSE'" style="font-size:24px;">0</span>
+                                <span v-if="value=='EMPTY'" style="font-size:24px;">e</span>
+                                <span v-if="index<(_.size(assignment.assignment)-1)" style="font-size:24px;">,</span>
+                            </span>
+                        <span style="font-size:24px;">}</span>
+                        <span style="font-size:24px;margin-left:5px;">
+                            <span v-if="assignment.satisfied"><i class="fa fa-check" aria-hidden="true"></i></span>
+                            <span v-if="!assignment.satisfied"><i class="fa fa-times" aria-hidden="true"></i></span>
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </body>
+    <script src="https://cdn.jsdelivr.net/npm/vue@2.6.12"></script>
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js" integrity="sha384-DfXdz2htPH0lsSSs5nCTpuj/zy4C+OGpamoFVy38MVBnE+IbbVYUew+OrCXaRkfj" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-ho+j7jyWK8fNQe+A12Hb8AhRq26LrZ/JpcUGGOn+Y7RsweNrtN/tE3MoK7ZeZDyx" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/underscore.js/1.13.1/underscore-min.js" integrity="sha512-ZuOjyqq409+q6uc49UiBF3fTeyRyP8Qs0Jf/7FxH5LfhqBMzrR5cwbpDA4BgzSo884w6q/+oNdIeHenOqhISGw==" crossorigin="anonymous"></script>
+    <script>
+        let clause={
+            current_literal_id:0,
+            current_literal_positive:true,
+            current_clause_literals:[],//{literal_id,literal_positive}
+        }
+
+        let cnf={
+            clauses:[],//{literal}
+        }
+
+        let compute={
+            assignments:[],//{assignment,satisfied}
+        }
+
+        const AddClause=new Vue({
+            el:"#add_clause",
+            data:{
+                cnf:cnf,
+                clause:clause
+            },
+            methods:{
+                flip_positive:function(){
+                    this.clause.current_literal_positive=!(this.clause.current_literal_positive);
+                },
+                add_literal:function(){
+                    let id=parseInt(this.clause.current_literal_id);
+                    let positive=clause.current_literal_positive;
+
+                    if(!Number.isInteger(id)||id<0){
+                        return;
+                    }
+                    for(i in this.clause.current_clause_literals){
+                        let literal=this.clause.current_clause_literals[i];
+                        if(id==literal.literal_id){
+                            return;
+                        }
+                    }
+
+                    this.clause.current_clause_literals.push({
+                        literal_id:id,
+                        literal_positive:positive
+                    });
+                    this.clause.current_literal_id=0;
+                    this.clause.current_literal_positive=true;
+                },
+                add_clause:function(){
+                    if(this.clause.current_clause_literals.length>0){
+                        this.cnf.clauses.push(this.clause.current_clause_literals);
+                        this.clause.current_clause_literals=[];
+                    }
+                },
+                reset:function(){
+                    this.clause.current_clause_literals=[];
+                }
+            }
+        });
+
+        const CNF=new Vue({
+            el:"#cnf",
+            data:{
+                cnf:cnf,
+                compute:compute
+            },
+            methods:{
+                compute_sat:function(){
+                    this.compute.assignments=[];
+
+                    let clauses=this.cnf.clauses;
+                    let literal_ids=[];
+                    for(i in clauses){
+                        let clause=clauses[i];
+                        for(j in clause){
+                            let literal=clause[j];
+                            if(!(literal.literal_id in literal_ids)){
+                                literal_ids.push(literal.literal_id);
+                            }
+                        }
+                    }
+
+                    let init_assignment={};
+                    for(i in literal_ids){
+                        let id=literal_ids[i];
+                        init_assignment[id]="EMPTY";
+                    }
+
+                    let stack=[];
+                    stack.push(Object.assign({},init_assignment));
+                    for(;;){
+                        let assignment=stack.pop();
+                        if(!assignment){
+                            break;
+                        }
+                        //
+                        console.log(assignment);
+
+                        let conflict=false;
+                        for(i in clauses){
+                            let clause=clauses[i];
+                            let clause_conflict=true;
+                            for(j in clause){
+                                let literal=clause[j];
+                                let literal_assignment=assignment[literal.literal_id];
+                                if((literal_assignment=="EMPTY")||(literal_assignment=="TRUE"&&literal.literal_positive)||(literal_assignment=="FALSE"&&!literal.literal_positive)){
+                                    clause_conflict=false;
+                                }
+                            }
+                            if(clause_conflict){
+                                conflict=true;
+                                break;
+                            }
+                        }
+
+                        if(conflict){
+                            //found confict assignment
+                            console.log("conflict");
+                            this.compute.assignments.push({
+                                assignment:assignment,
+                                satisfied:false,
+                            });
+                        }else{
+                            let next_id=false;
+                            for(id in assignment){
+                                if(assignment[id]=="EMPTY"){
+                                    next_id=id;
+                                    break;
+                                }
+                            }
+                            if(next_id){
+                                let new_assignment_right=Object.assign({},assignment);
+                                new_assignment_right[next_id]="FALSE";
+                                stack.push(new_assignment_right);
+                                let new_assignment_left=Object.assign({},assignment);
+                                new_assignment_left[next_id]="TRUE";
+                                stack.push(new_assignment_left);
+                            }else{
+                                //found satisfied assignment
+                                console.log("satisfied");
+                                this.compute.assignments.push({
+                                    assignment:assignment,
+                                    satisfied:true,
+                                });
+                            }
+                        }
+                    }
+                },
+                reset:function(){
+                    this.cnf.clauses=[];
+                    this.compute.assignments=[];
+                }
+            }
+        })
+    </script>
+</html>
